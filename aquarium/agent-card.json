@@ -1,0 +1,54 @@
+{
+  "protocolVersion": "1.0.1",
+  "name": "kaggle",
+  "description": "Соревнования Kaggle: состояние сабмитов и квот, честная оценка плеча, ведение реестра гипотез",
+  "url": "/a2a/kaggle",
+  "version": "0.1.0",
+  "capabilities": {
+    "streaming": true,
+    "extensions": [
+      "urn:a2a:traceability"
+    ]
+  },
+  "skills": [
+    {
+      "id": "status",
+      "name": "Состояние: сабмиты, скоры, квоты GPU/TPU, идущие кернелы"
+    },
+    {
+      "id": "score-arm",
+      "name": "Оценить плечо честно: половинная схема вместо бутстрапа на выбранном весе"
+    },
+    {
+      "id": "ledger",
+      "name": "Записать результат в реестр гипотез и опубликовать"
+    },
+    {
+      "id": "run-kernel",
+      "name": "Запустить кернел и дождаться, с зондом до траты квоты"
+    },
+    {
+      "id": "propose-submit",
+      "name": "Предложить сабмит с обоснованием; отправку подтверждает человек"
+    }
+  ],
+  "securitySchemes": {
+    "bearer": {
+      "type": "http",
+      "scheme": "bearer"
+    }
+  },
+  "x-visibility": {
+    "level": "internal",
+    "callers": [],
+    "accepts_tainted": false
+  },
+  "x-aquarium": {
+    "runtime": "strands",
+    "model": "claude-sonnet-5",
+    "billing": "api",
+    "forge_server": "servers/kaggle",
+    "max_concurrent": 1,
+    "queue": "aq.q.kaggle"
+  }
+}

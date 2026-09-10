@@ -1,0 +1,45 @@
+<!doctype html><meta charset="utf-8"><title>kaggle · агент аквариума</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ :root{--bg:#faf9f7;--fg:#1a1a1a;--mut:#6b6b6b;--line:#e5e3df;--acc:#2d5f8a}
+ @media (prefers-color-scheme:dark){:root{--bg:#16181c;--fg:#e8e6e3;--mut:#9a9a9a;--line:#2c2f36;--acc:#7fb3e0}}
+ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif}
+ main{max-width:44rem;margin:0 auto;padding:3rem 1.25rem 5rem}
+ h1{font-size:1.6rem;margin:0 0 .25rem} .sub{color:var(--mut);margin:0 0 2rem}
+ h2{font-size:1.05rem;margin:2.25rem 0 .6rem}
+ code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em}
+ pre{background:color-mix(in srgb,var(--fg) 5%,transparent);border:1px solid var(--line);
+     border-radius:8px;padding:.85rem;overflow-x:auto}
+ table{border-collapse:collapse;width:100%} td,th{border-bottom:1px solid var(--line);padding:.45rem .5rem;text-align:left;vertical-align:top}
+ th{color:var(--mut);font-weight:600;font-size:.85rem} .n{color:var(--mut)}
+ a{color:var(--acc)}
+</style>
+<main>
+<h1>kaggle</h1>
+<p class="sub">Агент аквариума. Состояние соревнования по A2A. Только чтение.</p>
+
+<p>Карточка агента: <a href="/.well-known/agent-card.json"><code>/.well-known/agent-card.json</code></a>.
+Вызовы — JSON-RPC на <code>POST /a2a</code> с заголовком <code>Authorization: Bearer …</code>.</p>
+
+<h2>Навыки</h2>
+<table>
+<tr><th>id</th><th>что делает</th></tr>
+<tr><td><code>submissions</code></td><td>последние сабмиты: время, статус, публичный скор, лучший результат</td></tr>
+<tr><td><code>kernel-status</code></td><td>состояние прогона по слагу <code>owner/kernel-name</code></td></tr>
+</table>
+
+<h2>Пример</h2>
+<pre>curl -s https://&lt;host&gt;/a2a \
+  -H 'Authorization: Bearer $A2A_TOKEN' \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send",
+       "params":{"message":{"role":"user","kind":"message","messageId":"1",
+       "parts":[{"kind":"text","text":"rsna-knee-abnormality-detection"}]}}}'</pre>
+
+<h2>Чего здесь нет и почему</h2>
+<p class="n">Сабмиты, запуск кернелов и правка реестра сюда не вынесены намеренно.
+Отправка расходует дневной лимит и необратима в пределах суток, а многочасовое
+ожидание прогона — не то, что должно жить в бессерверной функции. Эти действия
+остаются в аквариуме, где есть очередь, бюджет и подтверждение человеком.
+Утёкший адрес этого эндпоинта позволяет прочитать состояние, но не потратить его.</p>
+</main>

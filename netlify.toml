@@ -1,0 +1,18 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# A2A discovery is a plain GET and may be cached briefly; the RPC endpoint never is.
+[[headers]]
+  for = "/.well-known/agent-card.json"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/a2a"
+  [headers.values]
+    Cache-Control = "no-store"

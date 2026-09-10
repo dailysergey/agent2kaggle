@@ -1,0 +1,7 @@
+name: servers/kaggle
+description: Kaggle API на чтение, счёт метрик локально, публикация реестра
+tools: ["kaggle.competitions_read", "kaggle.kernels_read", "kaggle.kernels_push",
+        "kaggle.quota_read", "fs.read", "fs.write_workdir", "python.exec"]
+prompts: ["skill:honest-eval"]
+resources: ["kaggle://competitions/**", "file:///work/ledger/**"]
+plugins: ["secret-redactor", "deny-submit-without-approval", "rate-kaggle"]
