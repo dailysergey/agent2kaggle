@@ -1,7 +1,8 @@
 // HTTP-API ленты для страницы. Тот же пропуск, что и у A2A: кто может звать
 // агента, тот может читать и писать в общий чат. Отдельной роли для людей нет
 // намеренно — иначе пропусков стало бы два, а отзывать пришлось бы оба.
-import { listMessages, appendMessage } from "./lib/chat.mjs";
+import { listMessages } from "./lib/chat.mjs";
+import { handleMessage } from "./lib/handle.mjs";
 import { identify, CORS } from "./lib/auth.mjs";
 
 export default async (req) => {
@@ -23,8 +24,10 @@ export default async (req) => {
   if (!text) return Response.json({ error: "пустое сообщение" }, { status: 400, headers: CORS });
   if (!author) return Response.json({ error: "укажите имя" }, { status: 400, headers: CORS });
 
-  const msg = await appendMessage({ author, role: "human", text });
-  return Response.json({ ok: true, message: msg }, { headers: CORS });
+  // Глубина 0: человек начинает цепочку, а не продолжает чужую.
+  const r = await handleMessage({ caller: author, role: "human", text, depth: 0, partition: "chat" });
+  return Response.json({ ok: true, state: r.state, reply: r.text, cached: !!r.cached },
+                       { headers: CORS });
 };
 
 export const config = { path: "/api/chat", method: ["GET", "POST", "OPTIONS"] };

@@ -10,8 +10,8 @@
 
 const KAGGLE = "https://www.kaggle.com/api/v1";
 
-import { appendMessage } from "./lib/chat.mjs";
 import { identify, CORS } from "./lib/auth.mjs";
+import { handleMessage } from "./lib/handle.mjs";
 
 const err = (id, code, message) =>
   Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } },
@@ -43,6 +43,8 @@ async function kaggleGet(path, params = {}) {
 const textOf = (m) =>
   (m?.parts ?? []).filter((p) => p.kind === "text").map((p) => p.text).join(" ").trim();
 
+export { submissions, kernelStatus, route, summarise };
+
 // --- skills ---------------------------------------------------------------
 
 async function submissions(arg) {
@@ -71,13 +73,23 @@ async function kernelStatus(arg) {
   return { kernel: `${m[1]}/${m[2]}`, status: j.status ?? null, failureMessage: j.failureMessage ?? null };
 }
 
+// Раньше сюда попадал любой текст и уезжал в submissions. На вопрос вне навыков
+// агент отвечал таблицей сабмитов — уверенно и не по делу. Уверенный
+// нерелевантный ответ хуже отказа: он выглядит как ответ.
 function route(text) {
   const t = (text || "").toLowerCase();
   const slug = /([\w.-]+)\/([\w.-]+)/.exec(text || "");
-  if (/kernel|кернел|прогон|статус\s+\w+\//.test(t) && slug) return ["kernel-status", slug[0]];
-  const comp = /([a-z0-9-]{6,})/.exec(t.replace(/[а-яё]/g, " "));
-  return ["submissions", comp ? comp[1] : null];
+  if (slug && /kernel|кернел|прогон|ядр|статус/.test(t)) return ["kernel-status", slug[0]];
+  const comp = /\b([a-z][a-z0-9]*(?:-[a-z0-9]+){2,})\b/.exec(t);
+  if (comp || /сабмит|submission|скор|score|лидерборд|leaderboard/.test(t))
+    return ["submissions", comp ? comp[1] : null];
+  return [null, null];
 }
+
+export const SKILLS_HELP =
+  "я умею только два вопроса: сабмиты и скоры соревнования " +
+  "(назовите слаг, например rsna-knee-abnormality-detection) и статус кернела " +
+  "по owner/kernel-name. Остальное — не ко мне.";
 
 // Лента читается людьми, поэтому в неё идёт фраза, а сырые данные остаются
 // в поле data для тех, кому нужны подробности.
@@ -114,48 +126,32 @@ export default async (req) => {
   const text = textOf(msg);
   if (!text) return err(id, -32602, "пустое сообщение");
 
-  const [skill, arg] = route(text);
-  // Реплика вызывающего попадает в общий журнал до выполнения: если запрос
-  // упадёт, в ленте всё равно видно, о чём просили.
-  await appendMessage({ author: caller, role: "peer", text }).catch(() => {});
-  let data;
-  try {
-    data = skill === "kernel-status" ? await kernelStatus(arg) : await submissions(arg);
-  } catch (e) {
-    // Surface the failure as a failed Task, which is what an A2A client expects,
-    // rather than a transport-level error it cannot attribute to the task.
-    await appendMessage({ author: "kaggle", role: "agent", text: `не вышло: ${e.message}` })
-      .catch(() => {});
-    return Response.json({
-      jsonrpc: "2.0", id,
-      result: {
-        id: crypto.randomUUID(), contextId: params?.message?.contextId ?? crypto.randomUUID(),
-        kind: "task",
-        status: { state: "failed", message: { role: "agent", kind: "message",
-          messageId: crypto.randomUUID(),
-          parts: [{ kind: "text", text: `не вышло: ${e.message}` }] } }
-      }
-    }, { headers: CORS });
-  }
+  // Глубина берётся из метаданных сообщения: агент, отвечающий агенту, обязан
+  // её увеличивать, иначе пинг-понг не отличить от двух независимых вопросов.
+  const depth = Number(msg?.metadata?.depth ?? params?.metadata?.depth ?? 0) || 0;
+  const r = await handleMessage({
+    caller, role: "peer", text, depth,
+    partition: msg?.contextId ?? "a2a"
+  });
 
-  await appendMessage({ author: "kaggle", role: "agent", text: summarise(skill, data), data })
-    .catch(() => {});
+  const base = {
+    id: r.item.id,
+    contextId: msg?.contextId ?? crypto.randomUUID(),
+    kind: "task",
+    metadata: { depth: depth + 1 }      // чтобы вызывающий не потерял счётчик
+  };
 
-  const taskId = crypto.randomUUID();
-  return Response.json({
-    jsonrpc: "2.0", id,
-    result: {
-      id: taskId,
-      contextId: msg?.contextId ?? crypto.randomUUID(),
-      kind: "task",
-      status: { state: "completed" },
-      artifacts: [{
-        artifactId: crypto.randomUUID(),
-        name: skill,
-        parts: [{ kind: "data", data }]
-      }]
-    }
-  }, { headers: CORS });
+  if (r.state !== "completed")
+    return Response.json({ jsonrpc: "2.0", id, result: { ...base,
+      status: { state: r.state, message: { role: "agent", kind: "message",
+        messageId: crypto.randomUUID(), parts: [{ kind: "text", text: r.text }] } } } },
+      { headers: CORS });
+
+  return Response.json({ jsonrpc: "2.0", id, result: { ...base,
+    status: { state: "completed" },
+    artifacts: [{ artifactId: crypto.randomUUID(), name: r.skill,
+      parts: [{ kind: "text", text: r.text }, { kind: "data", data: r.data }] }] } },
+    { headers: CORS });
 };
 
 export const config = { path: "/a2a", method: ["POST", "OPTIONS"] };
