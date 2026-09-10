@@ -10,9 +10,43 @@
 
 const KAGGLE = "https://www.kaggle.com/api/v1";
 
+// A2A clients are often other agents running in a browser or on another host,
+// so preflight must succeed or they never reach the POST at all.
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Max-Age": "86400"
+};
+
 const err = (id, code, message) =>
   Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } },
-                { status: code === -32001 ? 401 : 200 });
+                { status: code === -32001 ? 401 : 200, headers: CORS });
+
+// One shared secret cannot be revoked for one caller without locking out every
+// caller, and it cannot say who called. So callers are named: A2A_TOKENS holds
+// "name:token" pairs, and revoking one is deleting one pair. A2A_TOKEN stays
+// supported as the single-caller case.
+function identify(req) {
+  const got = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!got) return null;
+  const pairs = (process.env.A2A_TOKENS || "")
+    .split(",").map((x) => x.trim()).filter(Boolean)
+    .map((x) => { const i = x.indexOf(":"); return [x.slice(0, i).trim(), x.slice(i + 1).trim()]; })
+    .filter(([n, t]) => n && t);
+  for (const [name, tok] of pairs) if (safeEq(tok, got)) return name;
+  const solo = process.env.A2A_TOKEN;
+  if (solo && safeEq(solo, got)) return "default";
+  return null;
+}
+
+// Constant-time compare: a token check that returns early leaks its prefix.
+function safeEq(a, b) {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
 
 function kaggleAuth() {
   // Kaggle has two credential shapes and they are NOT interchangeable. The
@@ -79,15 +113,18 @@ function route(text) {
 // --- JSON-RPC -------------------------------------------------------------
 
 export default async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+
   let body;
   try { body = await req.json(); } catch { return err(null, -32700, "не JSON"); }
   const { id, method, params } = body ?? {};
 
   // Auth first: the card is public, the endpoint is not.
-  const want = process.env.A2A_TOKEN;
-  const got = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!want) return err(id, -32603, "A2A_TOKEN не сконфигурирован на сервере");
-  if (got !== want) return err(id, -32001, "нужен корректный Bearer-токен");
+  if (!process.env.A2A_TOKENS && !process.env.A2A_TOKEN)
+    return err(id, -32603, "на сервере не задан ни A2A_TOKENS, ни A2A_TOKEN");
+  const caller = identify(req);
+  if (!caller) return err(id, -32001, "нужен корректный Bearer-токен");
+  console.log(`a2a: caller=${caller} method=${method}`);
 
   if (method === "tasks/get") {
     // Every task here completes inside message/send, so nothing is ever stored
@@ -116,7 +153,7 @@ export default async (req) => {
           messageId: crypto.randomUUID(),
           parts: [{ kind: "text", text: `не вышло: ${e.message}` }] } }
       }
-    });
+    }, { headers: CORS });
   }
 
   const taskId = crypto.randomUUID();
@@ -133,7 +170,7 @@ export default async (req) => {
         parts: [{ kind: "data", data }]
       }]
     }
-  });
+  }, { headers: CORS });
 };
 
-export const config = { path: "/a2a", method: "POST" };
+export const config = { path: "/a2a", method: ["POST", "OPTIONS"] };
