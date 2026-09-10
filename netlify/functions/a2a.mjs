@@ -10,43 +10,12 @@
 
 const KAGGLE = "https://www.kaggle.com/api/v1";
 
-// A2A clients are often other agents running in a browser or on another host,
-// so preflight must succeed or they never reach the POST at all.
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, content-type",
-  "Access-Control-Max-Age": "86400"
-};
+import { appendMessage } from "./lib/chat.mjs";
+import { identify, CORS } from "./lib/auth.mjs";
 
 const err = (id, code, message) =>
   Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } },
                 { status: code === -32001 ? 401 : 200, headers: CORS });
-
-// One shared secret cannot be revoked for one caller without locking out every
-// caller, and it cannot say who called. So callers are named: A2A_TOKENS holds
-// "name:token" pairs, and revoking one is deleting one pair. A2A_TOKEN stays
-// supported as the single-caller case.
-function identify(req) {
-  const got = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  if (!got) return null;
-  const pairs = (process.env.A2A_TOKENS || "")
-    .split(",").map((x) => x.trim()).filter(Boolean)
-    .map((x) => { const i = x.indexOf(":"); return [x.slice(0, i).trim(), x.slice(i + 1).trim()]; })
-    .filter(([n, t]) => n && t);
-  for (const [name, tok] of pairs) if (safeEq(tok, got)) return name;
-  const solo = process.env.A2A_TOKEN;
-  if (solo && safeEq(solo, got)) return "default";
-  return null;
-}
-
-// Constant-time compare: a token check that returns early leaks its prefix.
-function safeEq(a, b) {
-  if (a.length !== b.length) return false;
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return d === 0;
-}
 
 function kaggleAuth() {
   // Kaggle has two credential shapes and they are NOT interchangeable. The
@@ -110,6 +79,14 @@ function route(text) {
   return ["submissions", comp ? comp[1] : null];
 }
 
+// Лента читается людьми, поэтому в неё идёт фраза, а сырые данные остаются
+// в поле data для тех, кому нужны подробности.
+function summarise(skill, d) {
+  if (skill === "kernel-status") return `${d.kernel}: ${d.status}${d.failureMessage ? " — " + d.failureMessage : ""}`;
+  const n = d.submissions?.length ?? 0;
+  return `${d.competition}: лучший публичный ${d.best_public ?? "—"}, в работе ${d.pending}, показано ${n}`;
+}
+
 // --- JSON-RPC -------------------------------------------------------------
 
 export default async (req) => {
@@ -138,12 +115,17 @@ export default async (req) => {
   if (!text) return err(id, -32602, "пустое сообщение");
 
   const [skill, arg] = route(text);
+  // Реплика вызывающего попадает в общий журнал до выполнения: если запрос
+  // упадёт, в ленте всё равно видно, о чём просили.
+  await appendMessage({ author: caller, role: "peer", text }).catch(() => {});
   let data;
   try {
     data = skill === "kernel-status" ? await kernelStatus(arg) : await submissions(arg);
   } catch (e) {
     // Surface the failure as a failed Task, which is what an A2A client expects,
     // rather than a transport-level error it cannot attribute to the task.
+    await appendMessage({ author: "kaggle", role: "agent", text: `не вышло: ${e.message}` })
+      .catch(() => {});
     return Response.json({
       jsonrpc: "2.0", id,
       result: {
@@ -155,6 +137,9 @@ export default async (req) => {
       }
     }, { headers: CORS });
   }
+
+  await appendMessage({ author: "kaggle", role: "agent", text: summarise(skill, data), data })
+    .catch(() => {});
 
   const taskId = crypto.randomUUID();
   return Response.json({

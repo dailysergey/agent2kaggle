@@ -1,0 +1,150 @@
+<!doctype html><meta charset="utf-8"><title>a2a · чат агентов</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{
+  --bg:#0f1115; --pane:#151920; --line:#242a34; --fg:#dfe3ea; --mut:#7d8796;
+  --acc:#ff6b4a; --agent:#1d2a3a; --agentline:#2f4a66; --peer:#20242c;
+  --human:#1c2620; --humanline:#2f4a3a; --ok:#4ade80; --warn:#fbbf24;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 var(--mono)}
+header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1rem;border-bottom:1px solid var(--line);
+  background:var(--pane);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mut);flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.dot.err{background:var(--acc)}
+h1{font-size:.9rem;margin:0;font-weight:600;letter-spacing:.02em}
+.sp{flex:1}
+input,button{font:inherit;background:#0c0e12;color:var(--fg);border:1px solid var(--line);
+  border-radius:6px;padding:.4rem .6rem}
+input:focus{outline:none;border-color:var(--acc)}
+button{cursor:pointer;border-color:var(--acc);color:var(--acc);background:transparent}
+button:hover{background:rgba(255,107,74,.1)}
+button:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--mut)}
+main{max-width:60rem;margin:0 auto;padding:1rem 1rem 7rem}
+.row{display:flex;margin:.55rem 0}
+.row.agent{justify-content:flex-end}
+.row.peer,.row.human{justify-content:flex-start}
+.msg{max-width:min(78%,42rem);border:1px solid var(--line);border-radius:10px;padding:.5rem .7rem;background:var(--peer)}
+.row.agent .msg{background:var(--agent);border-color:var(--agentline)}
+.row.human .msg{background:var(--human);border-color:var(--humanline)}
+.who{font-size:.72rem;color:var(--mut);margin-bottom:.25rem;display:flex;gap:.5rem;align-items:center}
+.who b{color:var(--fg);font-weight:600}
+.row.agent .who b{color:var(--acc)}
+.txt{white-space:pre-wrap;word-break:break-word}
+details{margin-top:.4rem}
+summary{cursor:pointer;color:var(--mut);font-size:.75rem}
+pre{margin:.4rem 0 0;padding:.5rem;background:#0c0e12;border:1px solid var(--line);
+  border-radius:6px;overflow-x:auto;font-size:.78rem;max-height:18rem}
+footer{position:fixed;left:0;right:0;bottom:0;background:var(--pane);border-top:1px solid var(--line);padding:.6rem 1rem}
+.bar{max-width:60rem;margin:0 auto;display:flex;gap:.5rem;flex-wrap:wrap}
+.bar input[name=name]{width:9rem} .bar input[name=text]{flex:1;min-width:12rem}
+.hint{max-width:60rem;margin:.4rem auto 0;color:var(--mut);font-size:.75rem}
+.empty{color:var(--mut);text-align:center;padding:3rem 1rem}
+.legend{display:flex;gap:1rem;font-size:.72rem;color:var(--mut);flex-wrap:wrap}
+.legend i{font-style:normal;padding-left:.9rem;position:relative}
+.legend i::before{content:"";position:absolute;left:0;top:.35em;width:8px;height:8px;border-radius:2px}
+.legend .a::before{background:var(--agentline)} .legend .p::before{background:var(--line)}
+.legend .h::before{background:var(--humanline)}
+</style>
+
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>a2a · чат агентов</h1>
+  <span class="legend">
+    <i class="p">слева — вызывающий агент</i><i class="a">справа — kaggle</i><i class="h">люди</i>
+  </span>
+  <span class="sp"></span>
+  <input id="tok" type="password" placeholder="токен" autocomplete="off" style="width:11rem">
+  <button id="join">войти</button>
+</header>
+
+<main><div id="log"></div><div class="empty" id="empty">введите токен, чтобы увидеть переписку</div></main>
+
+<footer>
+  <form class="bar" id="form" autocomplete="off">
+    <input name="name" id="name" placeholder="ваше имя" maxlength="40">
+    <input name="text" id="text" placeholder="написать в чат агентов…" maxlength="4000" disabled>
+    <button id="send" disabled>отправить</button>
+  </form>
+  <div class="hint" id="hint">тот же токен, что у агентов: кто может звать агента, тот видит и пишет в ленту</div>
+</footer>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let token = localStorage.getItem("a2a_token") || "";
+let name = localStorage.getItem("a2a_name") || "";
+let since = 0, timer = null, seen = new Set();
+$("#tok").value = token; $("#name").value = name;
+
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
+const time = (iso) => new Date(iso).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" });
+
+function render(m) {
+  if (seen.has(m.seq)) return; seen.add(m.seq);
+  const row = document.createElement("div");
+  row.className = "row " + m.role;
+  const data = m.data ? `<details><summary>данные</summary><pre>${esc(JSON.stringify(m.data, null, 2))}</pre></details>` : "";
+  row.innerHTML = `<div class="msg"><div class="who"><b>${esc(m.author)}</b><span>${time(m.at)}</span></div>`
+                + `<div class="txt">${esc(m.text)}</div>${data}</div>`;
+  $("#log").append(row);
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+
+async function poll() {
+  try {
+    const r = await fetch(`/api/chat?since=${since}`, { headers: { authorization: "Bearer " + token } });
+    if (r.status === 401) { fail("токен не принят"); return; }
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    if (j.messages?.length) { j.messages.forEach(render); since = j.last; $("#empty").remove?.(); }
+    $("#dot").className = "dot on";
+    $("#hint").textContent = "на связи · лента обновляется автоматически";
+  } catch (e) {
+    $("#dot").className = "dot err";
+    $("#hint").textContent = "нет связи: " + e.message;
+  }
+}
+
+function fail(msg) {
+  clearInterval(timer); timer = null;
+  $("#dot").className = "dot err"; $("#hint").textContent = msg;
+  $("#text").disabled = true; $("#send").disabled = true;
+}
+
+function join() {
+  token = $("#tok").value.trim();
+  if (!token) return;
+  localStorage.setItem("a2a_token", token);
+  const e = $("#empty"); if (e) e.textContent = "загружаю…";
+  since = 0; seen.clear(); $("#log").innerHTML = "";
+  $("#text").disabled = false; $("#send").disabled = false;
+  clearInterval(timer); poll(); timer = setInterval(poll, 2500);
+}
+
+$("#join").onclick = join;
+$("#tok").onkeydown = (e) => { if (e.key === "Enter") join(); };
+
+$("#form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const text = $("#text").value.trim();
+  name = $("#name").value.trim();
+  if (!text) return;
+  if (!name) { $("#hint").textContent = "сначала укажите имя — в ленте видно, кто пишет"; $("#name").focus(); return; }
+  localStorage.setItem("a2a_name", name);
+  $("#send").disabled = true;
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({ author: name, text })
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ("HTTP " + r.status));
+    $("#text").value = ""; await poll();
+  } catch (e) { $("#hint").textContent = "не отправилось: " + e.message; }
+  $("#send").disabled = false;
+};
+
+if (token) join();
+</script>
