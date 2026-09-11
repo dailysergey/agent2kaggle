@@ -140,8 +140,13 @@ $("#form").onsubmit = async (ev) => {
       headers: { authorization: "Bearer " + token, "content-type": "application/json" },
       body: JSON.stringify({ author: name, text })
     });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ("HTTP " + r.status));
-    $("#text").value = ""; await poll();
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    $("#text").value = "";
+    // Ответ модели приходит фоном за 30-70 секунд, поэтому здесь не ждём его,
+    // а показываем, что агент думает: иначе пауза читается как поломка.
+    if (j.state === "working") $("#hint").textContent = "агент думает… ответ появится в ленте";
+    await poll();
   } catch (e) { $("#hint").textContent = "не отправилось: " + e.message; }
   $("#send").disabled = false;
 };

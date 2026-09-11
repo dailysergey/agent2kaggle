@@ -8,7 +8,7 @@ const CARD = {
   description:
     "Состояние соревнования Kaggle: сабмиты, скоры, статус кернелов. Только чтение.",
   version: "0.1.0",
-  capabilities: { streaming: false },
+  capabilities: { streaming: false, stateTransitionHistory: true },
   defaultInputModes: ["text/plain"],
   defaultOutputModes: ["text/plain", "application/json"],
   skills: [
@@ -18,6 +18,14 @@ const CARD = {
       description: "Последние сабмиты соревнования: время, статус, публичный скор.",
       tags: ["kaggle", "read"],
       examples: ["какие скоры у rsna-knee-abnormality-detection"]
+    },
+    {
+      id: "reason",
+      name: "Рассуждение по состоянию соревнования",
+      description: "Свободный вопрос: агент отвечает по текущим сабмитам и ленте. "
+                 + "Ответ приходит В ФОН за 30-70 с — задача возвращается в состоянии working.",
+      tags: ["kaggle", "llm"],
+      examples: ["какая следующая гипотеза", "стоит ли сабмитить форк"]
     },
     {
       id: "kernel-status",

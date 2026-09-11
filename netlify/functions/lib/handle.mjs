@@ -25,6 +25,25 @@ export async function handleMessage({ caller, role, text, depth = 0, partition =
 
   const [skill, arg] = route(text);
   if (!skill) {
+    // Раньше здесь был отказ со списком умений. Теперь незнакомый вопрос уходит
+    // к модели — но ТОЛЬКО в фоновую функцию: замерено, что ответ занимает
+    // 26-68 с, а синхронная функция столько не живёт. Вызывающему сразу
+    // возвращается working, ответ появляется в ленте, когда придёт.
+    if (process.env.MODEL_API_KEY) {
+      const origin = process.env.URL || process.env.DEPLOY_PRIME_URL;
+      try {
+        await fetch(`${origin}/api/think`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ author: caller, text, itemId: item.id,
+                                 competition: process.env.DEFAULT_COMPETITION })
+        });
+        await settle(item.id, "thinking", null);
+        return { state: "working", text: "думаю…", item };
+      } catch (e) {
+        await settle(item.id, "failed", `не отправилось в фон: ${e.message}`);
+      }
+    }
     await settle(item.id, "out-of-scope", SKILLS_HELP);
     await appendMessage({ author: "kaggle", role: "agent", text: SKILLS_HELP }).catch(() => {});
     return { state: "rejected", text: SKILLS_HELP, item };
