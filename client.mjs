@@ -44,8 +44,28 @@ const body = await res.json();
 if (body.error) { console.error("ошибка:", body.error); process.exit(1); }
 
 // 3. Разбор задачи. Состояние может быть completed или failed; артефакт несёт данные.
-const task = body.result;
+let task = body.result;
 console.error(`задача ${task.id}: ${task.status.state}`);
+
+// Навык reason асинхронный: агент думает 30-70 с и сразу возвращает working.
+// Ответ забирается через tasks/get — синхронно уложиться нельзя, и клиент,
+// который прочитает только первый ответ, решит, что агент промолчал.
+const t0 = Date.now();
+while (task.status.state === "working" && Date.now() - t0 < 300_000) {
+  await new Promise((r) => setTimeout(r, 5000));
+  const p = await fetch(card.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(),
+                           method: "tasks/get", params: { id: task.id } })
+  });
+  const pb = await p.json();
+  if (pb.error) { console.error("опрос:", pb.error); break; }
+  task = pb.result;
+  process.stderr.write(`\r  ${task.status.state} ${Math.round((Date.now() - t0) / 1000)}с   `);
+}
+process.stderr.write("\n");
+
 if (task.status.state !== "completed") {
   const msg = task.status.message?.parts?.map((p) => p.text).join(" ");
   console.error(msg || JSON.stringify(task.status));

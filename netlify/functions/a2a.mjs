@@ -12,6 +12,7 @@ const KAGGLE = "https://www.kaggle.com/api/v1";
 
 import { identify, CORS } from "./lib/auth.mjs";
 import { handleMessage } from "./lib/handle.mjs";
+import { getItem } from "./lib/queue.mjs";
 
 const err = (id, code, message) =>
   Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } },
@@ -77,8 +78,26 @@ async function kernelStatus(arg) {
 // агент отвечал таблицей сабмитов — уверенно и не по делу. Уверенный
 // нерелевантный ответ хуже отказа: он выглядит как ответ.
 function route(text) {
-  const t = (text || "").toLowerCase();
-  const slug = /([\w.-]+)\/([\w.-]+)/.exec(text || "");
+  const raw = text || "";
+  const t = raw.toLowerCase();
+
+  // Длинное сообщение — это разговор, а не запрос справки, даже если внутри
+  // попалось слово "сабмит". Ловили на этом: координационное письмо на два
+  // абзаца получило в ответ таблицу сабмитов вместо ответа по существу,
+  // потому что ключевое слово сработало раньше, чем вопрос дошёл до модели.
+  // Справочные навыки берут только короткие обращения.
+  if (raw.length > 160) return [null, null];
+  if ((raw.match(/\?/g) || []).length > 1 || /(^|\n)\s*\d\)/.test(raw)) return [null, null];
+
+  // Длины мало: "стоит ли тратить сабмит" короче 160 и всё равно вопрос, а не
+  // запрос справки. Ключевое слово внутри вопроса не делает его командой.
+  // Поэтому сначала ищем вопросительную форму, и только потом ключевые слова.
+  // Без \b: в JS граница слова определена через [A-Za-z0-9_], кириллица туда
+  // не входит, поэтому /\bстоит/ не срабатывает вовсе. Ловились на этом.
+  const ASKING = /(стоит ли|нужно ли|можно ли|следует|как |какая|какой|какие|каком|почему|зачем|что если|что делать|посоветуй|объясни|оцени|сравни|предложи|\bshould\b|\bwhy\b|\bhow\b|\bwhat\b)/i;
+  if (ASKING.test(raw)) return [null, null];
+
+  const slug = /([\w.-]+)\/([\w.-]+)/.exec(raw);
   if (slug && /kernel|кернел|прогон|ядр|статус/.test(t)) return ["kernel-status", slug[0]];
   const comp = /\b([a-z][a-z0-9]*(?:-[a-z0-9]+){2,})\b/.exec(t);
   if (comp || /сабмит|submission|скор|score|лидерборд|leaderboard/.test(t))
@@ -116,9 +135,26 @@ export default async (req) => {
   console.log(`a2a: caller=${caller} method=${method}`);
 
   if (method === "tasks/get") {
-    // Every task here completes inside message/send, so nothing is ever stored
-    // to look up. Saying so is better than pretending a task store exists.
-    return err(id, -32001, "задачи выполняются синхронно; используйте message/send");
+    // Раньше здесь стоял отказ: всё завершалось внутри message/send, и хранить
+    // было нечего. С появлением модели это перестало быть правдой — ответ
+    // приходит фоном за 30-70 с, вызывающий получает working и должен иметь
+    // чем забрать результат. Контракт, который врёт про собственную
+    // асинхронность, хуже отсутствующего: клиент ждёт ответа, которого не будет.
+    const tid = params?.id;
+    if (!tid) return err(id, -32602, "нужен params.id");
+    const it = await getItem(tid);
+    if (!it) return err(id, -32001, "задача не найдена");
+    const done = it.status === "done" || it.status === "cached";
+    const failed = it.status === "failed" || it.status === "refused" || it.status === "out-of-scope";
+    const state = done ? "completed" : failed ? "failed" : "working";
+    const base = { id: tid, contextId: it.partition, kind: "task", status: { state } };
+    if (done)
+      base.artifacts = [{ artifactId: crypto.randomUUID(), name: "reason",
+                          parts: [{ kind: "text", text: it.result ?? "" }] }];
+    else if (failed)
+      base.status.message = { role: "agent", kind: "message", messageId: crypto.randomUUID(),
+                              parts: [{ kind: "text", text: it.result ?? it.status }] };
+    return Response.json({ jsonrpc: "2.0", id, result: base }, { headers: CORS });
   }
   if (method !== "message/send") return err(id, -32601, `метод ${method} не поддерживается`);
 

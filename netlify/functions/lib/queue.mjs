@@ -35,6 +35,11 @@ export async function settle(id, status, result = null) {
   return it;
 }
 
+export async function getItem(id) {
+  const all = (await store().get(KEY, { type: "json" })) ?? [];
+  return all.find((x) => x.id === id) ?? null;
+}
+
 export async function listQueue(limit = 50) {
   const all = (await store().get(KEY, { type: "json" })) ?? [];
   return all.slice(-limit).reverse();

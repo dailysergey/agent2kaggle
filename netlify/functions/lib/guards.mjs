@@ -50,7 +50,7 @@ export async function admit({ caller, text, depth = 0 }) {
 
   if (s.day !== today()) { s.day = today(); s.total = 0; s.callers = {}; }   // суточный сброс
 
-  if (s.paused) return { ok: false, reason: "агент остановлен вручную (стоп-кран)" };
+  if (s.paused) return { ok: false, paused: true, reason: "агент остановлен вручную (стоп-кран)" };
 
   if (depth >= LIMITS.maxDepth)
     return { ok: false, reason: `предел глубины цепочки ${LIMITS.maxDepth}: похоже на пинг-понг агентов` };

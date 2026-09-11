@@ -12,6 +12,13 @@ export async function handleMessage({ caller, role, text, depth = 0, partition =
   const gate = await admit({ caller, text, depth });
 
   if (!gate.ok) {
+    // Стоп-кран означает "люди отвечают сами", а не "агент отказывает вслух".
+    // Реплика про остановку на каждое сообщение засоряла бы ленту, ради
+    // которой стоп-кран и нажали. Сообщение в журнал ложится, ответа нет.
+    if (gate.paused) {
+      await settle(item.id, "paused", null);
+      return { state: "rejected", text: "", silent: true, item };
+    }
     await settle(item.id, "refused", gate.reason);
     await appendMessage({ author: "kaggle", role: "agent", text: `⛔ ${gate.reason}` }).catch(() => {});
     return { state: "rejected", text: gate.reason, item };

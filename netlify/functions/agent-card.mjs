@@ -9,6 +9,8 @@ const CARD = {
     "Состояние соревнования Kaggle: сабмиты, скоры, статус кернелов. Только чтение.",
   version: "0.1.0",
   capabilities: { streaming: false, stateTransitionHistory: true },
+  // Навык reason асинхронный: message/send вернёт working, результат забирается
+  // через tasks/get по id задачи. Синхронно уложиться нельзя — модель думает 30-70 с.
   defaultInputModes: ["text/plain"],
   defaultOutputModes: ["text/plain", "application/json"],
   skills: [
